@@ -61,6 +61,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         private const val KEY_LAST_BOOKNO = "last_book_number"
         private const val KEY_LAST_CHNO   = "last_chapter_number"
         private const val KEY_LAST_POS    = "last_position_ms"
+        const val KEY_DEFAULT_SPEED       = "default_speed"
     }
 
     private var mediaPlayer: MediaPlayer? = null
@@ -119,6 +120,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
     override fun onCreate() {
         super.onCreate()
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        PlayerState.playbackSpeed.value = prefs.getFloat(KEY_DEFAULT_SPEED, 1.0f)
         repo  = com.example.audio_bible.data.BibleRepository(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         mediaSession = MediaSessionCompat(this, "AudioBible").apply {
@@ -301,6 +303,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
 
     private fun setSpeed(speed: Float) {
         PlayerState.playbackSpeed.value = speed
+        prefs.edit().putFloat(KEY_DEFAULT_SPEED, speed).apply()
         mediaPlayer?.let { applySpeed(it) }
     }
 

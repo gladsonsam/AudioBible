@@ -28,6 +28,7 @@ fun SettingsScreen(
     val activeTranslation by viewModel.activeTranslation.collectAsState()
     val importProgress    by viewModel.importProgress.collectAsState()
     val importError       by viewModel.importError.collectAsState()
+    val playbackSpeed     by viewModel.playbackSpeed.collectAsState()
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showClearAllDialog     by remember { mutableStateOf(false) }
@@ -54,6 +55,59 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+
+            // ── Playback ──────────────────────────────────────────────────────────
+            item { SectionHeader(Icons.Rounded.Speed, "Playback") }
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Speed, null, tint = BibleAmber,
+                                modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Column {
+                                Text("Default Speed", fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyLarge)
+                                Text("Playback speed used when opening a chapter",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+                        Slider(
+                            value = speeds.indexOf(playbackSpeed).toFloat().coerceAtLeast(0f),
+                            onValueChange = { viewModel.setDefaultSpeed(speeds[it.toInt()]) },
+                            valueRange = 0f..( speeds.size - 1).toFloat(),
+                            steps = speeds.size - 2,
+                            colors = SliderDefaults.colors(
+                                thumbColor = BibleAmber,
+                                activeTrackColor = BibleAmber
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            speeds.forEach { speed ->
+                                Text(
+                                    if (speed == 1f) "1×" else "${speed}×",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (playbackSpeed == speed) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (playbackSpeed == speed) BibleAmber
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             // ── Audio Library ─────────────────────────────────────────────────
             item { SectionHeader(Icons.Rounded.AudioFile, "Audio Library") }

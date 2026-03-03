@@ -121,6 +121,18 @@ class BibleViewModel(app: Application) : AndroidViewModel(app) {
         putExtra(AudioPlayerService.EXTRA_SPEED, speed)
     }
 
+    // Persists the default without starting the service (used from Settings)
+    fun setDefaultSpeed(speed: Float) {
+        prefs.edit().putFloat(AudioPlayerService.KEY_DEFAULT_SPEED, speed).apply()
+        PlayerState.playbackSpeed.value = speed
+        // Update MediaPlayer params if service is already active
+        if (PlayerState.currentChapter.value != null) {
+            send(AudioPlayerService.ACTION_SET_SPEED) {
+                putExtra(AudioPlayerService.EXTRA_SPEED, speed)
+            }
+        }
+    }
+
     fun cycleRepeat() {
         val next = when (PlayerState.repeatMode.value) {
             RepeatMode.OFF -> RepeatMode.ALL
@@ -309,6 +321,19 @@ class BibleViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Verse selection (for sharing) ─────────────────────────────────────────
+
+    private val _selectedVerses = MutableStateFlow<Set<Int>>(emptySet())
+    val selectedVerses: StateFlow<Set<Int>> = _selectedVerses
+
+    fun toggleVerseSelection(verseNum: Int) {
+        _selectedVerses.update { current ->
+            if (current.contains(verseNum)) current - verseNum else current + verseNum
+        }
+    }
+
+    fun clearVerseSelection() { _selectedVerses.value = emptySet() }
 
     private fun send(action: String, extras: (Intent.() -> Unit)? = null) {
         val ctx = getApplication<Application>()

@@ -1,9 +1,11 @@
 package com.example.audio_bible.ui.screens
 
+import android.content.Intent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,6 +53,12 @@ fun PlayerScreen(
     val verses          by viewModel.currentChapterVerses.collectAsState(emptyList())
     val syncData        by viewModel.currentSyncData.collectAsState()
     val activeVerse     by viewModel.activeVerseNumber.collectAsState()
+    val selectedVerses  by viewModel.selectedVerses.collectAsState()
+
+    val context = LocalContext.current
+
+    // Clear selection when chapter changes
+    LaunchedEffect(currentChapter) { viewModel.clearVerseSelection() }
 
     var showSleepDialog by remember { mutableStateOf(false) }
     var showSpeedSheet  by remember { mutableStateOf(false) }
@@ -90,12 +99,17 @@ fun PlayerScreen(
                         }
                         Column {
                             Text(
-                                currentChapter?.bookName ?: "–",
+                                if (selectedVerses.isNotEmpty())
+                                    "${selectedVerses.size} verse${if (selectedVerses.size == 1) "" else "s"} selected"
+                                else currentChapter?.bookName ?: "–",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = if (selectedVerses.isNotEmpty()) BibleAmber
+                                        else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                currentChapter?.let { "Chapter ${it.chapterNumber}" } ?: "",
+                                if (selectedVerses.isNotEmpty()) "Long-press to select more"
+                                else currentChapter?.let { "Chapter ${it.chapterNumber}" } ?: "",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -109,18 +123,41 @@ fun PlayerScreen(
                     }
                 },
                 actions = {
-                    if (sleepTimerMs > 0) {
-                        TextButton(onClick = { showSleepDialog = true }) {
-                            Icon(Icons.Rounded.Timer, null,
-                                tint = BibleAmber, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(formatTime(sleepTimerMs), color = BibleAmber,
-                                style = MaterialTheme.typography.labelSmall)
+                    if (selectedVerses.isNotEmpty()) {
+                        // Share selected verses
+                        IconButton(onClick = {
+                            val chapter = currentChapter
+                            val verseList = verses
+                                .filter { it.verseNumber in selectedVerses }
+                                .sortedBy { it.verseNumber }
+                            val text = formatShareText(chapter?.bookName, chapter?.chapterNumber, verseList)
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                            }
+                            context.startActivity(Intent.createChooser(intent, null))
+                        }) {
+                            Icon(Icons.Rounded.Share, "Share verses", tint = BibleAmber)
+                        }
+                        // Clear selection
+                        IconButton(onClick = { viewModel.clearVerseSelection() }) {
+                            Icon(Icons.Rounded.Close, "Clear selection",
+                                tint = MaterialTheme.colorScheme.onSurface)
                         }
                     } else {
-                        IconButton(onClick = { showSleepDialog = true }) {
-                            Icon(Icons.Rounded.Timer, "Sleep timer",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (sleepTimerMs > 0) {
+                            TextButton(onClick = { showSleepDialog = true }) {
+                                Icon(Icons.Rounded.Timer, null,
+                                    tint = BibleAmber, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(formatTime(sleepTimerMs), color = BibleAmber,
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                        } else {
+                            IconButton(onClick = { showSleepDialog = true }) {
+                                Icon(Icons.Rounded.Timer, "Sleep timer",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 },
@@ -159,13 +196,19 @@ fun PlayerScreen(
                     }
                 } else {
                     VerseList(
-                    verses      = verses,
-                    syncData    = syncData,
-                    activeVerse = activeVerse,
+                    verses         = verses,
+                    syncData       = syncData,
+                    activeVerse    = activeVerse,
+                    selectedVerses = selectedVerses,
                     onVerseClick = { verseNum ->
-                        val sync = syncData.firstOrNull { it.verse == verseNum }
-                        if (sync != null) viewModel.seekTo((sync.startSec * 1000).toLong())
-                    }
+                        if (selectedVerses.isNotEmpty()) {
+                            viewModel.toggleVerseSelection(verseNum)
+                        } else {
+                            val sync = syncData.firstOrNull { it.verse == verseNum }
+                            if (sync != null) viewModel.seekTo((sync.startSec * 1000).toLong())
+                        }
+                    },
+                    onVerseLongClick = { verseNum -> viewModel.toggleVerseSelection(verseNum) }
                 )
                 }
             }
@@ -296,12 +339,15 @@ fun PlayerScreen(
 
 // ── Verse list ────────────────────────────────────────────────────────────────
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun VerseList(
     verses: List<BibleVerse>,
     syncData: List<com.example.audio_bible.data.VerseSync>,
     activeVerse: Int,
-    onVerseClick: (Int) -> Unit
+    selectedVerses: Set<Int>,
+    onVerseClick: (Int) -> Unit,
+    onVerseLongClick: (Int) -> Unit
 ) {
     val listState = rememberLazyListState()
     val hasSyncData = syncData.isNotEmpty()
@@ -321,11 +367,14 @@ private fun VerseList(
         modifier = Modifier.fillMaxSize()
     ) {
         items(verses, key = { it.verseNumber }) { verse ->
-            val isActive = hasSyncData && verse.verseNumber == activeVerse
-            val canSeek  = hasSyncData && syncData.any { it.verse == verse.verseNumber }
-            val bgColor by androidx.compose.animation.animateColorAsState(
-                targetValue = if (isActive) BibleAmber.copy(alpha = 0.15f)
-                              else Color.Transparent,
+            val isActive   = hasSyncData && verse.verseNumber == activeVerse
+            val isSelected = verse.verseNumber in selectedVerses
+            val bgColor by animateColorAsState(
+                targetValue = when {
+                    isSelected -> BibleAmber.copy(alpha = 0.25f)
+                    isActive   -> BibleAmber.copy(alpha = 0.15f)
+                    else       -> Color.Transparent
+                },
                 animationSpec = tween(300),
                 label = "verseBg"
             )
@@ -335,31 +384,41 @@ private fun VerseList(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(bgColor)
-                    .then(
-                        if (canSeek) Modifier.clickable { onVerseClick(verse.verseNumber) }
-                        else Modifier
+                    .combinedClickable(
+                        onClick = { onVerseClick(verse.verseNumber) },
+                        onLongClick = { onVerseLongClick(verse.verseNumber) }
                     )
                     .padding(horizontal = 10.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Verse number
-                Text(
-                    text = "${verse.verseNumber}",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 10.sp
-                    ),
-                    color = if (isActive) BibleAmber else BibleAmber.copy(alpha = 0.6f),
-                    modifier = Modifier.width(20.dp),
-                    textAlign = TextAlign.Start
-                )
+                // Verse number or checkmark when selected
+                if (isSelected) {
+                    Icon(
+                        Icons.Rounded.CheckCircle,
+                        contentDescription = null,
+                        tint = BibleAmber,
+                        modifier = Modifier.size(16.dp)
+                    )
+                } else {
+                    Text(
+                        text = "${verse.verseNumber}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 10.sp
+                        ),
+                        color = if (isActive) BibleAmber else BibleAmber.copy(alpha = 0.6f),
+                        modifier = Modifier.width(16.dp),
+                        textAlign = TextAlign.Start
+                    )
+                }
                 Text(
                     text = verse.text,
                     style = MaterialTheme.typography.bodyLarge.copy(
                         lineHeight = 28.sp,
                         fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal
                     ),
-                    color = if (isActive) MaterialTheme.colorScheme.onSurface
+                    color = if (isActive || isSelected) MaterialTheme.colorScheme.onSurface
                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                     modifier = Modifier.weight(1f)
                 )
@@ -490,4 +549,30 @@ private fun speedLabel(speed: Float) = when (speed) {
     1.5f  -> "Fast"
     2.0f  -> "Double speed"
     else  -> ""
+}
+
+private fun formatShareText(bookName: String?, chapterNumber: Int?, verses: List<BibleVerse>): String {
+    if (verses.isEmpty()) return ""
+    val book = bookName ?: ""
+    val chap = chapterNumber ?: 0
+
+    // Group verses into consecutive runs
+    val runs = mutableListOf<List<BibleVerse>>()
+    var current = mutableListOf(verses[0])
+    for (i in 1 until verses.size) {
+        if (verses[i].verseNumber == verses[i - 1].verseNumber + 1) {
+            current.add(verses[i])
+        } else {
+            runs.add(current)
+            current = mutableListOf(verses[i])
+        }
+    }
+    runs.add(current)
+
+    return runs.joinToString("\n\n") { run ->
+        val text = run.joinToString(" ") { it.text }
+        val ref = if (run.size == 1) "$book $chap:${run[0].verseNumber}"
+                  else "$book $chap:${run.first().verseNumber}-${run.last().verseNumber}"
+        "$text\n— $ref"
+    }
 }
