@@ -390,31 +390,31 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         val speed    = PlayerState.playbackSpeed.value
         val playing  = PlayerState.isPlaying.value
 
-        val title = chapter?.displayTitle ?: "Audio Bible"
+        val title = chapter?.let { "${it.bookName} · Chapter ${it.chapterNumber}" } ?: "Audio Bible"
         val testament = chapter?.let {
             if (it.bookNumber <= 39) "Old Testament" else "New Testament"
         }
 
-        // e.g. "3:21 / 45:10" — skip if duration unknown
+        // Content text: time + speed (clean, no testament — that goes in subtext)
         val timeStr = if (dur > 0) "${fmtMs(pos)} / ${fmtMs(dur)}" else if (pos > 0) fmtMs(pos) else null
-
-        // e.g. "Old Testament  •  1.5×" or just "Old Testament"
-        val subLine = listOfNotNull(
-            testament,
+        val contentText = listOfNotNull(
+            timeStr,
             if (speed != 1.0f) "%.2g×".format(speed) else null
-        ).joinToString("  •  ")
+        ).joinToString("  •  ").ifEmpty { if (playing) "Playing" else "Select a chapter" }
 
-        val contentText = when {
-            timeStr != null && subLine.isNotEmpty() -> "$subLine  •  $timeStr"
-            timeStr != null                         -> timeStr
-            subLine.isNotEmpty()                    -> subLine
-            else                                    -> "Select a chapter to begin"
-        }
+        val largeIcon = android.graphics.BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(largeIcon)
             .setContentTitle(title)
             .setContentText(contentText)
+            .setSubText(testament)
+            .setColor(0xFFE8A838.toInt())
+            .setColorized(false)
+            .setShowWhen(false)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setContentIntent(
                 PendingIntent.getActivity(
                     this, 0,
@@ -427,14 +427,13 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
             )
-            .addAction(android.R.drawable.ic_media_previous, "Previous", servicePendingIntent(ACTION_PREV))
+            .addAction(R.drawable.ic_notif_prev,    "Previous", servicePendingIntent(ACTION_PREV))
             .addAction(
-                if (playing) android.R.drawable.ic_media_pause
-                else android.R.drawable.ic_media_play,
+                if (playing) R.drawable.ic_notif_pause else R.drawable.ic_notif_play,
                 if (playing) "Pause" else "Play",
                 servicePendingIntent(if (playing) ACTION_PAUSE else ACTION_RESUME)
             )
-            .addAction(android.R.drawable.ic_media_next, "Next", servicePendingIntent(ACTION_NEXT))
+            .addAction(R.drawable.ic_notif_next,    "Next",     servicePendingIntent(ACTION_NEXT))
             .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1, 2))
             .setOngoing(playing)
             .build()
