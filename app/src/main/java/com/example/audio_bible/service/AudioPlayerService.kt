@@ -135,12 +135,11 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
             )
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
-                    if (mediaPlayer != null) {
-                        resumeInternal()
-                    } else {
-                        restoreAndPlay()
-                    }
+                    if (mediaPlayer != null) resumeInternal() else restoreAndPlay()
                 }
+                // Samsung Routines / Google Assistant may use these instead of plain onPlay()
+                override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) = onPlay()
+                override fun onPlayFromSearch(query: String?, extras: Bundle?)    = onPlay()
                 override fun onPause()          = pauseInternal()
                 override fun onSkipToNext()     = playNext()
                 override fun onSkipToPrevious() = playPrev()
@@ -150,6 +149,11 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         }
         // Required so MediaBrowserServiceCompat exposes the token to external clients
         sessionToken = mediaSession.sessionToken
+        // Publish an initial PAUSED state so Samsung Routines / system can see playback is
+        // available and will send a play command rather than waiting for user interaction.
+        if (prefs.getString(KEY_LAST_URI, null) != null) {
+            updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+        }
         focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setOnAudioFocusChangeListener { change ->
                 when (change) {
@@ -182,6 +186,9 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
             ACTION_SET_REPEAT  -> setRepeat(intent.getStringExtra(EXTRA_REPEAT_MODE) ?: "OFF")
             ACTION_SLEEP_TIMER -> startSleepTimer(intent.getLongExtra(EXTRA_SLEEP_TIMER_MS, 0L))
             ACTION_STOP        -> { stopAll(); stopSelf() }
+            // null action = service started externally (e.g. Samsung Routines, system restart)
+            // Auto-play last chapter so routines work without needing a separate play command.
+            null -> if (mediaPlayer == null) restoreAndPlay()
         }
         return START_NOT_STICKY
     }
