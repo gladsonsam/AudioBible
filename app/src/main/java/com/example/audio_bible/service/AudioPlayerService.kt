@@ -6,13 +6,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Icon
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.PlaybackParams
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
@@ -21,7 +19,6 @@ import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
@@ -387,8 +384,6 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
     }
 
     private fun buildNotification(): android.app.Notification {
-        if (Build.VERSION.SDK_INT >= 36) return buildProgressStyleNotification()
-
         val chapter  = PlayerState.currentChapter.value
         val pos      = PlayerState.positionMs.value
         val dur      = PlayerState.durationMs.value
@@ -442,86 +437,11 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
             .addAction(android.R.drawable.ic_media_next, "Next", servicePendingIntent(ACTION_NEXT))
             .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1, 2))
             .setOngoing(playing)
-            .setExtras(samsungNowBarExtras(chapter, playing))
             .build()
     }
 
     private fun updateNotification() =
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
-
-    @RequiresApi(36)
-    private fun buildProgressStyleNotification(): android.app.Notification {
-        val chapter = PlayerState.currentChapter.value
-        val posMs   = mediaPlayer?.currentPosition?.toLong() ?: PlayerState.positionMs.value
-        val durMs   = mediaPlayer?.duration?.toLong() ?: PlayerState.durationMs.value
-        val playing = PlayerState.isPlaying.value
-
-        val durSec = (durMs / 1000).toInt().coerceAtLeast(1)
-        val posSec = (posMs / 1000).toInt().coerceIn(0, durSec)
-
-        val style = android.app.Notification.ProgressStyle()
-            .setStyledByProgress(false)
-            .setProgress(posSec)
-            .setProgressSegments(listOf(
-                android.app.Notification.ProgressStyle.Segment(durSec)
-            ))
-
-        val title = chapter?.let { "${it.bookName} · Chapter ${it.chapterNumber}" } ?: "Audio Bible"
-        val elapsed = if (durMs > 0) "${fmtMs(posMs)} / ${fmtMs(durMs)}" else ""
-
-        val contentIntent = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java).apply {
-                action = Intent.ACTION_MAIN
-                putExtra(MainActivity.EXTRA_NAVIGATE_TO, "player")
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        fun action(iconRes: Int, label: String, serviceAction: String) =
-            android.app.Notification.Action.Builder(
-                Icon.createWithResource(this, iconRes), label,
-                servicePendingIntent(serviceAction)
-            ).build()
-
-        return android.app.Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(if (playing) elapsed else "Paused${if (elapsed.isNotEmpty()) "  •  $elapsed" else ""}")
-            .setSubText("Audio Bible")
-            .setStyle(style)
-            .setContentIntent(contentIntent)
-            .setOngoing(playing)
-            .addExtras(samsungNowBarExtras(chapter, playing))
-            .addAction(action(android.R.drawable.ic_media_previous, "Previous", ACTION_PREV))
-            .addAction(action(
-                if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
-                if (playing) "Pause" else "Play",
-                if (playing) ACTION_PAUSE else ACTION_RESUME
-            ))
-            .addAction(action(android.R.drawable.ic_media_next, "Next", ACTION_NEXT))
-            .build()
-    }
-
-    /** Samsung One UI Now Bar extras — honored only for whitelisted apps. */
-    private fun samsungNowBarExtras(
-        chapter: com.example.audio_bible.data.BibleChapter?,
-        playing: Boolean
-    ): android.os.Bundle {
-        val primary = chapter?.let { "${it.bookName} · Chapter ${it.chapterNumber}" } ?: "Audio Bible"
-        val secondary = if (playing) "Now Playing" else "Paused"
-        return android.os.Bundle().apply {
-            putInt("android.ongoingActivityNoti.style", 1)
-            putString("android.ongoingActivityNoti.primaryInfo", primary)
-            putString("android.ongoingActivityNoti.secondaryInfo", secondary)
-            putString("android.ongoingActivityNoti.chipExpandedText", "Audio Bible")
-            putInt("android.ongoingActivityNoti.actionType", 1)
-            putInt("android.ongoingActivityNoti.actionPrimarySet", 0)
-            putString("android.ongoingActivityNoti.nowbarPrimaryInfo", primary)
-            putString("android.ongoingActivityNoti.nowbarSecondaryInfo", secondary)
-        }
-    }
 
     private fun servicePendingIntent(action: String): PendingIntent {
         val i = Intent(this, AudioPlayerService::class.java).apply { this.action = action }

@@ -50,13 +50,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- Samsung One UI Now Bar / Live Notifications support.
-             Signals that this app uses ongoing-activity notification extras.
-             Requires Samsung whitelist approval to show in the Now Bar. -->
-        <meta-data
-            android:name="com.samsung.android.support.ongoing_activity"
-            android:value="true" />
-
         <!-- Home screen widget -->
         <receiver
             android:name=".widget.BibleWidgetProvider"
