@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.audio_bible.ui.theme.BibleAmber
 import com.example.audio_bible.ui.viewmodel.BibleViewModel
 
@@ -29,6 +30,7 @@ fun SettingsScreen(
     val importProgress    by viewModel.importProgress.collectAsState()
     val importError       by viewModel.importError.collectAsState()
     val playbackSpeed     by viewModel.playbackSpeed.collectAsState()
+    val verseFontSize     by viewModel.verseFontSize.collectAsState()
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
     var showClearAllDialog     by remember { mutableStateOf(false) }
@@ -101,6 +103,62 @@ fun SettingsScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = if (playbackSpeed == speed) FontWeight.Bold else FontWeight.Normal,
                                     color = if (playbackSpeed == speed) BibleAmber
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Reading ───────────────────────────────────────────────────────────
+            item { Spacer(Modifier.height(4.dp)) }
+            item { SectionHeader(Icons.Rounded.FormatSize, "Reading") }
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.FormatSize, null, tint = BibleAmber,
+                                modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Column {
+                                Text("Verse Text Size", fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyLarge)
+                                Text("Preview: The word of the Lord",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontSize = verseFontSize.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        val fontSizes = listOf(12f, 14f, 16f, 18f, 20f, 22f, 24f)
+                        Slider(
+                            value = fontSizes.indexOf(verseFontSize).toFloat().coerceAtLeast(0f),
+                            onValueChange = { viewModel.setVerseFontSize(fontSizes[it.toInt()]) },
+                            valueRange = 0f..(fontSizes.size - 1).toFloat(),
+                            steps = fontSizes.size - 2,
+                            colors = SliderDefaults.colors(
+                                thumbColor = BibleAmber,
+                                activeTrackColor = BibleAmber
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            fontSizes.forEach { size ->
+                                Text(
+                                    "${size.toInt()}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (verseFontSize == size) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (verseFontSize == size) BibleAmber
                                             else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }

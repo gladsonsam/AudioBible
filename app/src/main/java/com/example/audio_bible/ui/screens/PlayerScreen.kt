@@ -6,6 +6,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -54,6 +56,7 @@ fun PlayerScreen(
     val syncData        by viewModel.currentSyncData.collectAsState()
     val activeVerse     by viewModel.activeVerseNumber.collectAsState()
     val selectedVerses  by viewModel.selectedVerses.collectAsState()
+    val verseFontSize   by viewModel.verseFontSize.collectAsState()
 
     val context = LocalContext.current
 
@@ -173,7 +176,20 @@ fun PlayerScreen(
                 .padding(padding)
         ) {
             // ── Verse text (fills remaining space) ───────────────────────────
-            Box(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier
+                .weight(1f)
+                .pointerInput(Unit) {
+                    var totalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { totalDrag = 0f },
+                        onDragEnd = {
+                            if (totalDrag < -80.dp.toPx()) viewModel.next()
+                            else if (totalDrag > 80.dp.toPx()) viewModel.previous()
+                        },
+                        onHorizontalDrag = { _, dragAmount -> totalDrag += dragAmount }
+                    )
+                }
+            ) {
                 if (verses.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -200,6 +216,7 @@ fun PlayerScreen(
                     syncData       = syncData,
                     activeVerse    = activeVerse,
                     selectedVerses = selectedVerses,
+                    verseFontSize  = verseFontSize,
                     onVerseClick = { verseNum ->
                         if (selectedVerses.isNotEmpty()) {
                             viewModel.toggleVerseSelection(verseNum)
@@ -346,6 +363,7 @@ private fun VerseList(
     syncData: List<com.example.audio_bible.data.VerseSync>,
     activeVerse: Int,
     selectedVerses: Set<Int>,
+    verseFontSize: Float,
     onVerseClick: (Int) -> Unit,
     onVerseLongClick: (Int) -> Unit
 ) {
@@ -415,7 +433,8 @@ private fun VerseList(
                 Text(
                     text = verse.text,
                     style = MaterialTheme.typography.bodyLarge.copy(
-                        lineHeight = 28.sp,
+                        lineHeight = (verseFontSize * 1.75f).sp,
+                        fontSize = verseFontSize.sp,
                         fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal
                     ),
                     color = if (isActive || isSelected) MaterialTheme.colorScheme.onSurface

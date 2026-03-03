@@ -335,6 +335,18 @@ class BibleViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearVerseSelection() { _selectedVerses.value = emptySet() }
 
+    // ── Font size ─────────────────────────────────────────────────────────────
+
+    private val _verseFontSize = MutableStateFlow(
+        prefs.getFloat("verse_font_size", 16f)
+    )
+    val verseFontSize: StateFlow<Float> = _verseFontSize
+
+    fun setVerseFontSize(sp: Float) {
+        _verseFontSize.value = sp
+        prefs.edit().putFloat("verse_font_size", sp).apply()
+    }
+
     private fun send(action: String, extras: (Intent.() -> Unit)? = null) {
         val ctx = getApplication<Application>()
         val intent = Intent(ctx, AudioPlayerService::class.java).apply {
