@@ -76,6 +76,21 @@ class BibleViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         repo.getSavedFolderUri()?.let { loadBooks(it) }
+        // Restore last chapter for display (without starting playback) so the
+        // player screen shows text immediately even on a cold start (e.g. from widget).
+        if (PlayerState.currentChapter.value == null) {
+            val uriStr   = prefs.getString("last_uri", null)
+            val bookName = prefs.getString("last_book_name", "") ?: ""
+            val bookNo   = prefs.getInt("last_book_number", 0)
+            val chapNo   = prefs.getInt("last_chapter_number", 0)
+            val posMs    = prefs.getLong("last_position_ms", 0L)
+            if (uriStr != null && chapNo > 0) {
+                PlayerState.currentChapter.value = BibleChapter(
+                    bookNo, bookName, chapNo, android.net.Uri.parse(uriStr)
+                )
+                PlayerState.positionMs.value = posMs
+            }
+        }
     }
 
     fun onFolderSelected(uri: Uri) {

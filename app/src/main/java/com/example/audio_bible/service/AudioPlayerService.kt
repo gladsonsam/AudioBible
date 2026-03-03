@@ -61,6 +61,8 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         private const val KEY_LAST_BOOKNO = "last_book_number"
         private const val KEY_LAST_CHNO   = "last_chapter_number"
         private const val KEY_LAST_POS    = "last_position_ms"
+        private const val KEY_LAST_DUR    = "last_duration_ms"
+        private const val KEY_IS_PLAYING  = "is_playing"
         const val KEY_DEFAULT_SPEED       = "default_speed"
     }
 
@@ -73,6 +75,8 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val handler = Handler(Looper.getMainLooper())
+    /** True only when the user explicitly paused — prevents auto-resume on audio focus regain. */
+    private var userPaused = false
 
     // Progress updater (every 500 ms) — also ticks active verse from sync data
     private var notifTickCount = 0
@@ -150,8 +154,14 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
             .setOnAudioFocusChangeListener { change ->
                 when (change) {
                     AudioManager.AUDIOFOCUS_LOSS,
-                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pauseInternal()
-                    AudioManager.AUDIOFOCUS_GAIN           -> resumeInternal()
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                        if (PlayerState.isPlaying.value) {
+                            pauseInternal(userInitiated = false)
+                        }
+                    }
+                    AudioManager.AUDIOFOCUS_GAIN -> {
+                        if (!userPaused) resumeInternal()
+                    }
                 }
             }.build()
         createNotificationChannel()
@@ -215,7 +225,12 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         updateMediaMetadata()
         updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
         saveLastChapter(chapter)
+        prefs.edit()
+            .putLong(KEY_LAST_DUR, mediaPlayer!!.duration.toLong())
+            .putBoolean(KEY_IS_PLAYING, true)
+            .apply()
         updateNotification()
+        com.example.audio_bible.widget.BibleWidgetProvider.requestUpdate(this)
 
         // Load sync data in background — sets PlayerState.currentSyncData when ready
         val folderUri = repo.getSavedFolderUri()
@@ -257,22 +272,31 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         }
     }
 
-    private fun pauseInternal() {
+    private fun pauseInternal(userInitiated: Boolean = true) {
+        userPaused = userInitiated
         mediaPlayer?.pause()
         PlayerState.isPlaying.value = false
         handler.removeCallbacks(progressRunnable)
         updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+        prefs.edit()
+            .putLong(KEY_LAST_POS, mediaPlayer?.currentPosition?.toLong() ?: 0L)
+            .putBoolean(KEY_IS_PLAYING, false)
+            .apply()
         updateNotification()
+        com.example.audio_bible.widget.BibleWidgetProvider.requestUpdate(this)
     }
 
     private fun resumeInternal() {
+        userPaused = false
         val mp = mediaPlayer
         if (mp == null) { restoreAndPlay(); return }
         mp.start()
         PlayerState.isPlaying.value = true
         startProgressUpdater()
         updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+        prefs.edit().putBoolean(KEY_IS_PLAYING, true).apply()
         updateNotification()
+        com.example.audio_bible.widget.BibleWidgetProvider.requestUpdate(this)
     }
 
     private fun playNext() {
@@ -340,6 +364,8 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         PlayerState.sleepTimerMs.value = 0L
         audioManager.abandonAudioFocusRequest(focusRequest)
         stopForeground(STOP_FOREGROUND_REMOVE)
+        prefs.edit().putBoolean(KEY_IS_PLAYING, false).apply()
+        com.example.audio_bible.widget.BibleWidgetProvider.requestUpdate(this)
     }
 
     // ── Notification ─────────────────────────────────────────────────────────

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_body"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:padding="12dp"
+    android:gravity="center_vertical">
+
+    <!-- Top row: book/chapter info + play button -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/widget_book_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Audio Bible"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/widget_chapter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tap to open"
+                android:textColor="#A0A0A0"
+                android:textSize="11sp"
+                android:layout_marginTop="1dp" />
+
+        </LinearLayout>
+
+        <!-- Play / Pause button -->
+        <ImageView
+            android:id="@+id/widget_play_button"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:src="@android:drawable/ic_media_play"
+            android:background="@drawable/widget_play_bg"
+            android:padding="9dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Play/Pause" />
+
+    </LinearLayout>
+
+    <!-- Progress bar (only visible when widget is tall enough) -->
+    <ProgressBar
+        android:id="@+id/widget_progress"
+        style="@android:style/Widget.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="8dp"
+        android:progressTint="#E8A838"
+        android:progressBackgroundTint="#3A3530"
+        android:max="100"
+        android:progress="0" />
+
+    <!-- Time label -->
+    <TextView
+        android:id="@+id/widget_time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#707070"
+        android:textSize="10sp"
+        android:layout_marginTop="3dp" />
+
+</LinearLayout>
