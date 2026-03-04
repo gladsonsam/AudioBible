@@ -323,11 +323,11 @@ private fun HeatmapGrid(data: List<HeatmapDay>, onDayClick: (String) -> Unit) {
         val first = week.firstOrNull { !it.isAfter(today) }
         val showMonth = first != null && first.dayOfMonth <= 7 && first.monthValue != lastMonth
         val showYear  = first != null && first.year != lastYear && (showMonth || weeks.indexOf(week) == 0)
-        if (showMonth && first != null) lastMonth = first.monthValue
-        if (showYear  && first != null) lastYear  = first.year
+        if (showMonth) lastMonth = first!!.monthValue
+        if (showYear)  lastYear  = first!!.year
         WeekLabels(
-            month = if (showMonth && first != null) first.format(mthFmt) else null,
-            year  = if (showYear  && first != null) "'${first.year.toString().takeLast(2)}" else null
+            month = if (showMonth) first!!.format(mthFmt) else null,
+            year  = if (showYear)  "'${first!!.year.toString().takeLast(2)}" else null
         )
     }
 

@@ -3,19 +3,19 @@ package com.example.audio_bible.service
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.media.PlaybackParams
 import android.os.Bundle
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.support.v4.media.MediaBrowserCompat
+import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -24,8 +24,13 @@ import androidx.media.MediaBrowserServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import com.example.audio_bible.MainActivity
 import com.example.audio_bible.R
+import com.example.audio_bible.data.BibleBook
+import com.example.audio_bible.data.BibleChapter
+import com.example.audio_bible.data.BibleRepository
+import com.example.audio_bible.data.VerseSync
 import com.example.audio_bible.data.db.BibleDatabase
 import com.example.audio_bible.data.db.ReadingLog
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,6 +59,19 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         const val NOTIFICATION_ID = 1
         const val CHANNEL_ID      = "audio_bible_channel"
 
+        // Android Auto media tree IDs
+        private const val MEDIA_ROOT_ID         = "root"
+        private const val MEDIA_PREFIX_BOOK     = "book/"
+        private const val MEDIA_PREFIX_CHAPTER  = "chapter/"
+        private const val MEDIA_ID_OT           = "testament/old"
+        private const val MEDIA_ID_NT           = "testament/new"
+        private const val MEDIA_ID_HISTORY      = "history"
+
+        // Android Auto playback speed custom actions
+        private const val ACTION_SPEED_UP   = "ACTION_SPEED_UP"
+        private const val ACTION_SPEED_DOWN = "ACTION_SPEED_DOWN"
+        private val SPEED_STEPS = floatArrayOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+
         // SharedPrefs keys for last-played state
         private const val PREFS_NAME      = "bible_prefs"
         private const val KEY_LAST_URI    = "last_uri"
@@ -67,11 +85,12 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
     }
 
     private var mediaPlayer: MediaPlayer? = null
+    private var currentBookArt: Bitmap? = null
     private lateinit var audioManager: AudioManager
     private lateinit var focusRequest: AudioFocusRequest
     private lateinit var mediaSession: MediaSessionCompat
     private lateinit var prefs: android.content.SharedPreferences
-    private lateinit var repo: com.example.audio_bible.data.BibleRepository
+    private lateinit var repo: BibleRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val handler = Handler(Looper.getMainLooper())
@@ -125,7 +144,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         super.onCreate()
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         PlayerState.playbackSpeed.value = prefs.getFloat(KEY_DEFAULT_SPEED, 1.0f)
-        repo  = com.example.audio_bible.data.BibleRepository(this)
+        repo  = BibleRepository(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         mediaSession = MediaSessionCompat(this, "AudioBible").apply {
             @Suppress("DEPRECATION")
@@ -138,12 +157,36 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
                     if (mediaPlayer != null) resumeInternal() else restoreAndPlay()
                 }
                 // Samsung Routines / Google Assistant may use these instead of plain onPlay()
-                override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) = onPlay()
+                override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
+                    if (mediaId?.startsWith(MEDIA_PREFIX_CHAPTER) == true) {
+                        val index = mediaId.removePrefix(MEDIA_PREFIX_CHAPTER).toIntOrNull() ?: return
+                        serviceScope.launch {
+                            getOrLoadPlaylist()
+                            handler.post { playChapter(index) }
+                        }
+                    } else {
+                        onPlay()
+                    }
+                }
                 override fun onPlayFromSearch(query: String?, extras: Bundle?)    = onPlay()
                 override fun onPause()          = pauseInternal()
                 override fun onSkipToNext()     = playNext()
                 override fun onSkipToPrevious() = playPrev()
                 override fun onStop()           { stopAll(); stopSelf() }
+                override fun onCustomAction(action: String?, extras: Bundle?) {
+                    val current = PlayerState.playbackSpeed.value
+                    val idx = SPEED_STEPS.indexOfFirst { abs(it - current) < 0.01f }
+                    when (action) {
+                        ACTION_SPEED_DOWN -> if (idx > 0) setSpeed(SPEED_STEPS[idx - 1])
+                        ACTION_SPEED_UP   -> if (idx in 0 until SPEED_STEPS.size - 1) setSpeed(SPEED_STEPS[idx + 1])
+                    }
+                    if (action == ACTION_SPEED_DOWN || action == ACTION_SPEED_UP) {
+                        updatePlaybackState(
+                            if (PlayerState.isPlaying.value) PlaybackStateCompat.STATE_PLAYING
+                            else PlaybackStateCompat.STATE_PAUSED
+                        )
+                    }
+                }
             })
             isActive = true
         }
@@ -225,7 +268,8 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         PlayerState.durationMs.value        = mediaPlayer!!.duration.toLong()
         PlayerState.positionMs.value        = 0L
         PlayerState.activeVerseNumber.value = 0
-        PlayerState.currentSyncData.value   = emptyList<com.example.audio_bible.data.VerseSync>()
+        PlayerState.currentSyncData.value   = emptyList<VerseSync>()
+        currentBookArt = loadBookArt(chapter.bookName)
 
         audioManager.requestAudioFocus(focusRequest)
         startProgressUpdater()
@@ -336,6 +380,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         PlayerState.playbackSpeed.value = speed
         prefs.edit().putFloat(KEY_DEFAULT_SPEED, speed).apply()
         mediaPlayer?.let { applySpeed(it) }
+        updateMediaMetadata()
     }
 
     private fun applySpeed(mp: MediaPlayer) {
@@ -409,7 +454,8 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
             if (speed != 1.0f) "%.2g×".format(speed) else null
         ).joinToString("  •  ").ifEmpty { if (playing) "Playing" else "Select a chapter" }
 
-        val largeIcon = android.graphics.BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
+        val largeIcon = currentBookArt
+            ?: BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -461,6 +507,13 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
 
     private fun updatePlaybackState(state: Int) {
         val position = mediaPlayer?.currentPosition?.toLong() ?: 0L
+        val speed = PlayerState.playbackSpeed.value
+        val speedDownAction = PlaybackStateCompat.CustomAction.Builder(
+            ACTION_SPEED_DOWN, "Slower", R.drawable.ic_speed_down
+        ).build()
+        val speedUpAction = PlaybackStateCompat.CustomAction.Builder(
+            ACTION_SPEED_UP, "Faster", R.drawable.ic_speed_up
+        ).build()
         mediaSession.setPlaybackState(
             PlaybackStateCompat.Builder()
                 .setActions(
@@ -469,9 +522,12 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
                     PlaybackStateCompat.ACTION_PLAY_PAUSE or
                     PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                     PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-                    PlaybackStateCompat.ACTION_STOP
+                    PlaybackStateCompat.ACTION_STOP or
+                    PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID
                 )
-                .setState(state, position, PlayerState.playbackSpeed.value)
+                .setState(state, position, speed)
+                .addCustomAction(speedDownAction)
+                .addCustomAction(speedUpAction)
                 .build()
         )
     }
@@ -479,17 +535,44 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
     private fun updateMediaMetadata() {
         val chapter = PlayerState.currentChapter.value ?: return
         val testament = if (chapter.bookNumber <= 39) "Old Testament" else "New Testament"
-        mediaSession.setMetadata(
-            MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, chapter.displayTitle)
-                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, testament)
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Audio Bible")
-                .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, chapter.bookName)
-                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION,
-                    PlayerState.durationMs.value)
-                .build()
-        )
+        val appIcon = BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
+        val builder = MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, chapter.displayTitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, testament)
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST,
+                "Audio Bible · ${speedLabel(PlayerState.playbackSpeed.value)}")
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, chapter.bookName)
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, PlayerState.durationMs.value)
+        currentBookArt?.let { art ->
+            builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, art)
+            builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art)
+            builder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, appIcon)
+        }
+        mediaSession.setMetadata(builder.build())
     }
+
+    private fun speedLabel(speed: Float) = when {
+        abs(speed - 0.75f) < 0.01f -> "0.75×"
+        abs(speed - 1.0f)  < 0.01f -> "1×"
+        abs(speed - 1.25f) < 0.01f -> "1.25×"
+        abs(speed - 1.5f)  < 0.01f -> "1.5×"
+        abs(speed - 2.0f)  < 0.01f -> "2×"
+        else -> "%.4g×".format(speed)
+    }
+
+    /** Loads the background image for [bookName] from assets, downsampled to ~512px. */
+    private fun loadBookArt(bookName: String): Bitmap? = try {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        assets.open("bible_book_backgrounds/$bookName.jpg")
+            .use { BitmapFactory.decodeStream(it, null, opts) }
+        val maxPx = 512
+        val scale = maxOf(opts.outWidth, opts.outHeight)
+        val opts2 = BitmapFactory.Options().apply {
+            inSampleSize = if (scale <= maxPx) 1 else scale / maxPx
+        }
+        assets.open("bible_book_backgrounds/$bookName.jpg")
+            .use { BitmapFactory.decodeStream(it, null, opts2) }
+    } catch (_: Exception) { null }
 
     // ── MediaBrowserServiceCompat ─────────────────────────────────────────────
 
@@ -497,14 +580,112 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         clientPackageName: String,
         clientUid: Int,
         rootHints: Bundle?
-    ): BrowserRoot = BrowserRoot("root", null)
+    ): BrowserRoot = BrowserRoot(MEDIA_ROOT_ID, null)
 
     override fun onLoadChildren(
         parentId: String,
         result: Result<MutableList<MediaBrowserCompat.MediaItem>>
     ) {
-        // Return empty list — we only need transport controls, not full browsing
-        result.sendResult(mutableListOf())
+        result.detach()
+        serviceScope.launch {
+            val items = mutableListOf<MediaBrowserCompat.MediaItem>()
+            when (parentId) {
+                MEDIA_ROOT_ID -> {
+                    items += browsableItem(MEDIA_ID_OT,      "Old Testament",  "Genesis – Malachi")
+                    items += browsableItem(MEDIA_ID_NT,      "New Testament",  "Matthew – Revelation")
+                    items += browsableItem(MEDIA_ID_HISTORY, "History",        "Recently played")
+                }
+                MEDIA_ID_OT -> {
+                    getOrLoadBooks()
+                        .filter { it.number in 1..39 }
+                        .forEach { book ->
+                            items += browsableItem("$MEDIA_PREFIX_BOOK${book.number}", book.name, "${book.chapters.size} chapters")
+                        }
+                }
+                MEDIA_ID_NT -> {
+                    getOrLoadBooks()
+                        .filter { it.number >= 40 }
+                        .forEach { book ->
+                            items += browsableItem("$MEDIA_PREFIX_BOOK${book.number}", book.name, "${book.chapters.size} chapters")
+                        }
+                }
+                MEDIA_ID_HISTORY -> loadHistoryItems(items)
+                else -> if (parentId.startsWith(MEDIA_PREFIX_BOOK)) {
+                    val bookNum = parentId.removePrefix(MEDIA_PREFIX_BOOK).toIntOrNull()
+                    getOrLoadPlaylist().forEachIndexed { index, chapter ->
+                        if (chapter.bookNumber == bookNum) {
+                            items += playableItem(
+                                "$MEDIA_PREFIX_CHAPTER$index",
+                                "Chapter ${chapter.chapterNumber}",
+                                chapter.bookName
+                            )
+                        }
+                    }
+                }
+            }
+            result.sendResult(items)
+        }
+    }
+
+    private fun browsableItem(id: String, title: String, subtitle: String) =
+        MediaBrowserCompat.MediaItem(
+            MediaDescriptionCompat.Builder()
+                .setMediaId(id).setTitle(title).setSubtitle(subtitle).build(),
+            MediaBrowserCompat.MediaItem.FLAG_BROWSABLE
+        )
+
+    private fun playableItem(id: String, title: String, subtitle: String) =
+        MediaBrowserCompat.MediaItem(
+            MediaDescriptionCompat.Builder()
+                .setMediaId(id).setTitle(title).setSubtitle(subtitle).build(),
+            MediaBrowserCompat.MediaItem.FLAG_PLAYABLE
+        )
+
+    private suspend fun loadHistoryItems(items: MutableList<MediaBrowserCompat.MediaItem>) {
+        val history = BibleDatabase.getInstance(applicationContext).statsDao().recentHistoryOnce()
+        val playlist = getOrLoadPlaylist()
+        val seen = mutableSetOf<String>()
+        for (log in history) {
+            val key = "${log.bookNumber}_${log.chapterNumber}"
+            if (!seen.add(key)) continue
+            val index = playlist.indexOfFirst {
+                it.bookNumber == log.bookNumber && it.chapterNumber == log.chapterNumber
+            }
+            if (index >= 0) {
+                val testament = if (log.bookNumber <= 39) "Old Testament" else "New Testament"
+                items += playableItem(
+                    "$MEDIA_PREFIX_CHAPTER$index",
+                    "${log.bookName} · Ch ${log.chapterNumber}",
+                    testament
+                )
+            }
+            if (items.size >= 20) break
+        }
+    }
+
+    /** Returns books, loading from folder if the playlist is not yet populated. */
+    private suspend fun getOrLoadBooks(): List<BibleBook> {
+        val playlist = PlayerState.playlist.value
+        if (playlist.isNotEmpty()) {
+            return playlist
+                .groupBy { it.bookNumber }
+                .map { (num, chapters) -> BibleBook(num, chapters.first().bookName, chapters) }
+                .sortedBy { it.number }
+        }
+        val folderUri = repo.getSavedFolderUri() ?: return emptyList()
+        val books = repo.loadBooks(folderUri)
+        PlayerState.playlist.value = books.flatMap { it.chapters }
+        return books
+    }
+
+    /** Returns the flat chapter playlist, loading from folder if not yet populated. */
+    private suspend fun getOrLoadPlaylist(): List<BibleChapter> {
+        if (PlayerState.playlist.value.isNotEmpty()) return PlayerState.playlist.value
+        val folderUri = repo.getSavedFolderUri() ?: return emptyList()
+        val books = repo.loadBooks(folderUri)
+        val playlist = books.flatMap { it.chapters }
+        PlayerState.playlist.value = playlist
+        return playlist
     }
 
     // ── Progress ──────────────────────────────────────────────────────────────
@@ -516,7 +697,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
 
     // ── Last-chapter persistence ───────────────────────────────────────────────
 
-    private fun saveLastChapter(chapter: com.example.audio_bible.data.BibleChapter) {
+    private fun saveLastChapter(chapter: BibleChapter) {
         prefs.edit()
             .putString(KEY_LAST_URI,    chapter.uri.toString())
             .putString(KEY_LAST_BOOK,   chapter.bookName)
@@ -535,7 +716,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
         val posMs    = prefs.getLong(KEY_LAST_POS,   0L)
         val uri      = android.net.Uri.parse(uriStr)
 
-        val chapter = com.example.audio_bible.data.BibleChapter(
+        val chapter = BibleChapter(
             bookNumber    = bookNo,
             bookName      = bookName,
             chapterNumber = chapNo,
@@ -567,6 +748,7 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
             PlayerState.isPlaying.value      = true
             PlayerState.durationMs.value     = mediaPlayer!!.duration.toLong()
             PlayerState.positionMs.value     = posMs
+            currentBookArt = loadBookArt(bookName)
 
             audioManager.requestAudioFocus(focusRequest)
             startProgressUpdater()

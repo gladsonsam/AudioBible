@@ -91,6 +91,10 @@ interface StatsDao {
     """)
     fun logsForDay(day: String): Flow<List<ReadingLog>>
 
+    /** One-shot history query for Android Auto (newest first, up to 50 entries). */
+    @Query("SELECT * FROM reading_log ORDER BY timestamp DESC LIMIT 50")
+    suspend fun recentHistoryOnce(): List<ReadingLog>
+
     /** All logs ordered newest first, for a recent history list. */
     @Query("SELECT * FROM reading_log ORDER BY timestamp DESC LIMIT 50")
     fun recentHistory(): Flow<List<ReadingLog>>

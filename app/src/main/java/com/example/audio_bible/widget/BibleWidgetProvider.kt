@@ -6,6 +6,8 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.widget.RemoteViews
 import com.example.audio_bible.MainActivity
 import com.example.audio_bible.R
@@ -38,6 +40,14 @@ class BibleWidgetProvider : AppWidgetProvider() {
             val isPlaying = prefs.getBoolean("is_playing", false)
 
             val views = RemoteViews(context.packageName, R.layout.widget_bible_player)
+
+            // Book background art
+            val art = if (bookName != null) loadWidgetArt(context, bookName) else null
+            if (art != null) {
+                views.setImageViewBitmap(R.id.widget_background_image, art)
+            } else {
+                views.setImageViewResource(R.id.widget_background_image, R.drawable.widget_background)
+            }
 
             if (bookName != null && chapNo > 0) {
                 views.setTextViewText(R.id.widget_book_name, bookName)
@@ -85,6 +95,20 @@ class BibleWidgetProvider : AppWidgetProvider() {
 
             manager.updateAppWidget(widgetId, views)
         }
+
+        /** Loads book background from assets, downsampled to ≤400px for widget IPC limits. */
+        private fun loadWidgetArt(context: Context, bookName: String): Bitmap? = try {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.assets.open("bible_book_backgrounds/$bookName.jpg")
+                .use { BitmapFactory.decodeStream(it, null, opts) }
+            val maxPx = 400
+            val scale = maxOf(opts.outWidth, opts.outHeight)
+            val opts2 = BitmapFactory.Options().apply {
+                inSampleSize = if (scale <= maxPx) 1 else scale / maxPx
+            }
+            context.assets.open("bible_book_backgrounds/$bookName.jpg")
+                .use { BitmapFactory.decodeStream(it, null, opts2) }
+        } catch (_: Exception) { null }
 
         private fun formatTime(ms: Long): String {
             val total = ms / 1000

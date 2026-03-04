@@ -23,6 +23,7 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
     val recentHistory    = dao.recentHistory()
 
     // Heatmap: all data from the very first recorded day
+    @OptIn(ExperimentalCoroutinesApi::class)
     val heatmap = dao.earliestTimestamp().flatMapLatest { earliest ->
         dao.heatmap(since = earliest ?: System.currentTimeMillis())
     }
