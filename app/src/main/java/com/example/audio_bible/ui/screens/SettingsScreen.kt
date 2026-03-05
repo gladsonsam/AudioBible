@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.audio_bible.data.db.TranslationProfile
 import com.example.audio_bible.ui.theme.BibleAmber
 import com.example.audio_bible.ui.viewmodel.BibleViewModel
 
@@ -23,18 +24,21 @@ import com.example.audio_bible.ui.viewmodel.BibleViewModel
 fun SettingsScreen(
     viewModel: BibleViewModel,
     onBack: () -> Unit,
-    onChangeAudioFolder: () -> Unit,
-    onImportFsb: () -> Unit
+    onSetAudioFolder: (translationName: String) -> Unit,
+    onImportFsb: (translationName: String) -> Unit
 ) {
-    val activeTranslation by viewModel.activeTranslation.collectAsState()
-    val importProgress    by viewModel.importProgress.collectAsState()
-    val importError       by viewModel.importError.collectAsState()
-    val playbackSpeed     by viewModel.playbackSpeed.collectAsState()
-    val verseFontSize     by viewModel.verseFontSize.collectAsState()
+    val activeTranslation  by viewModel.activeTranslation.collectAsState()
+    val allProfiles        by viewModel.allTranslationProfiles.collectAsState(emptyList())
+    val availableTranslations by viewModel.availableTranslations.collectAsState(emptyList())
+    val importProgress     by viewModel.importProgress.collectAsState()
+    val importError        by viewModel.importError.collectAsState()
+    val playbackSpeed      by viewModel.playbackSpeed.collectAsState()
+    val verseFontSize      by viewModel.verseFontSize.collectAsState()
 
-    var showClearHistoryDialog by remember { mutableStateOf(false) }
-    var showClearAllDialog     by remember { mutableStateOf(false) }
-    var showReplaceDialog      by remember { mutableStateOf(false) }
+    var showClearHistoryDialog   by remember { mutableStateOf(false) }
+    var showClearAllDialog       by remember { mutableStateOf(false) }
+    var showAddTranslationDialog by remember { mutableStateOf(false) }
+    var deleteTarget             by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -85,25 +89,18 @@ fun SettingsScreen(
                         Slider(
                             value = speeds.indexOf(playbackSpeed).toFloat().coerceAtLeast(0f),
                             onValueChange = { viewModel.setDefaultSpeed(speeds[it.toInt()]) },
-                            valueRange = 0f..( speeds.size - 1).toFloat(),
+                            valueRange = 0f..(speeds.size - 1).toFloat(),
                             steps = speeds.size - 2,
-                            colors = SliderDefaults.colors(
-                                thumbColor = BibleAmber,
-                                activeTrackColor = BibleAmber
-                            ),
+                            colors = SliderDefaults.colors(thumbColor = BibleAmber, activeTrackColor = BibleAmber),
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             speeds.forEach { speed ->
                                 Text(
                                     if (speed == 1f) "1×" else "${speed}×",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = if (playbackSpeed == speed) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (playbackSpeed == speed) BibleAmber
-                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (playbackSpeed == speed) BibleAmber else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -123,16 +120,13 @@ fun SettingsScreen(
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.FormatSize, null, tint = BibleAmber,
-                                modifier = Modifier.size(24.dp))
+                            Icon(Icons.Rounded.FormatSize, null, tint = BibleAmber, modifier = Modifier.size(24.dp))
                             Spacer(Modifier.width(14.dp))
                             Column {
                                 Text("Verse Text Size", fontWeight = FontWeight.SemiBold,
                                     style = MaterialTheme.typography.bodyLarge)
                                 Text("Preview: The word of the Lord",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontSize = verseFontSize.sp
-                                    ),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = verseFontSize.sp),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -143,108 +137,52 @@ fun SettingsScreen(
                             onValueChange = { viewModel.setVerseFontSize(fontSizes[it.toInt()]) },
                             valueRange = 0f..(fontSizes.size - 1).toFloat(),
                             steps = fontSizes.size - 2,
-                            colors = SliderDefaults.colors(
-                                thumbColor = BibleAmber,
-                                activeTrackColor = BibleAmber
-                            ),
+                            colors = SliderDefaults.colors(thumbColor = BibleAmber, activeTrackColor = BibleAmber),
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             fontSizes.forEach { size ->
-                                Text(
-                                    "${size.toInt()}",
+                                Text("${size.toInt()}",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = if (verseFontSize == size) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (verseFontSize == size) BibleAmber
-                                            else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                    color = if (verseFontSize == size) BibleAmber else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
                 }
             }
 
-            // ── Audio Library ─────────────────────────────────────────────────
-            item { SectionHeader(Icons.Rounded.AudioFile, "Audio Library") }
-            item {
-                SettingsTile(
-                    icon = Icons.Rounded.Folder,
-                    title = "Audio Folder",
-                    subtitle = "Select folder containing MP3 files",
-                    onClick = onChangeAudioFolder
+            // ── Translations ──────────────────────────────────────────────────
+            item { Spacer(Modifier.height(4.dp)) }
+            item { SectionHeader(Icons.AutoMirrored.Rounded.MenuBook, "Translations") }
+
+            // One card per translation profile
+            items(allProfiles.size) { i ->
+                val profile = allProfiles[i]
+                val isActive = profile.name == activeTranslation
+                TranslationCard(
+                    profile        = profile,
+                    isActive       = isActive,
+                    hasFsb         = profile.name in availableTranslations,
+                    importProgress = if (isActive) importProgress else null,
+                    importError    = if (isActive) importError else null,
+                    onActivate     = { viewModel.setActiveTranslation(profile.name) },
+                    onSetFolder    = { onSetAudioFolder(profile.name) },
+                    onImportFsb    = { onImportFsb(profile.name) },
+                    onDelete       = { deleteTarget = profile.name }
                 )
             }
 
-            // ── Bible Text ────────────────────────────────────────────────────
-            item { Spacer(Modifier.height(4.dp)) }
-            item { SectionHeader(Icons.AutoMirrored.Rounded.MenuBook, "Bible Text") }
+            // Add Translation button
             item {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth()
+                OutlinedButton(
+                    onClick = { showAddTranslationDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.FileOpen, null, tint = BibleAmber,
-                                modifier = Modifier.size(24.dp))
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    if (activeTranslation != null) activeTranslation!!
-                                    else "No translation imported",
-                                    fontWeight = FontWeight.SemiBold,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    if (activeTranslation != null) "Tap to replace with a new .fsb file"
-                                    else "Import a .fsb Bible text file",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Button(
-                                onClick = {
-                                    if (activeTranslation != null) showReplaceDialog = true
-                                    else onImportFsb()
-                                },
-                                enabled = importProgress == null,
-                                colors = ButtonDefaults.buttonColors(containerColor = BibleAmber),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text(
-                                    if (activeTranslation != null) "Replace" else "Import",
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.background
-                                )
-                            }
-                        }
-                        if (importProgress != null) {
-                            val (done, total) = importProgress!!
-                            Spacer(Modifier.height(10.dp))
-                            LinearProgressIndicator(
-                                progress = { if (total > 0) done.toFloat() / total else 0f },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = BibleAmber,
-                                trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                if (total == 0) "Starting…" else "Importing… $done / $total verses",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (importError != null) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(importError!!, color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+                    Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add Translation", fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -255,7 +193,7 @@ fun SettingsScreen(
                 SettingsTile(
                     icon = Icons.Rounded.History,
                     title = "Clear Listening History",
-                    subtitle = "Remove all play stats and reading progress",
+                    subtitle = "Remove play stats for the active translation",
                     iconTint = MaterialTheme.colorScheme.error,
                     onClick = { showClearHistoryDialog = true }
                 )
@@ -264,7 +202,7 @@ fun SettingsScreen(
                 SettingsTile(
                     icon = Icons.Rounded.DeleteForever,
                     title = "Clear All Data",
-                    subtitle = "Remove history and imported Bible text",
+                    subtitle = "Remove all translations, history and stats",
                     iconTint = MaterialTheme.colorScheme.error,
                     onClick = { showClearAllDialog = true }
                 )
@@ -274,27 +212,32 @@ fun SettingsScreen(
         }
     }
 
-    if (showReplaceDialog) {
-        AlertDialog(
-            onDismissRequest = { showReplaceDialog = false },
-            icon = { Icon(Icons.Rounded.FileOpen, null, tint = BibleAmber) },
-            title = { Text("Replace Translation") },
-            text = { Text("This will remove \"$activeTranslation\" and import a new one.") },
-            confirmButton = {
-                TextButton(onClick = { showReplaceDialog = false; onImportFsb() }) {
-                    Text("Replace", color = BibleAmber)
-                }
+    // ── Dialogs ───────────────────────────────────────────────────────────────
+
+    if (showAddTranslationDialog) {
+        AddTranslationDialog(
+            onConfirm = { name ->
+                viewModel.createTranslation(name)
+                showAddTranslationDialog = false
             },
-            dismissButton = {
-                TextButton(onClick = { showReplaceDialog = false }) { Text("Cancel") }
-            }
+            onDismiss = { showAddTranslationDialog = false }
+        )
+    }
+
+    if (deleteTarget != null) {
+        ConfirmDestructiveDialog(
+            title   = "Delete \"${deleteTarget}\"",
+            message = "Bible text, audio folder link, and listening history for this translation will be removed.",
+            confirmLabel = "Delete",
+            onConfirm = { viewModel.deleteTranslation(deleteTarget!!); deleteTarget = null },
+            onDismiss = { deleteTarget = null }
         )
     }
 
     if (showClearHistoryDialog) {
         ConfirmDestructiveDialog(
-            title = "Clear Listening History",
-            message = "All play counts, reading progress and stats will be deleted. This cannot be undone.",
+            title   = "Clear Listening History",
+            message = "All play counts and reading progress for the active translation will be deleted.",
             confirmLabel = "Clear",
             onConfirm = { viewModel.clearListeningHistory(); showClearHistoryDialog = false },
             onDismiss = { showClearHistoryDialog = false }
@@ -303,13 +246,154 @@ fun SettingsScreen(
 
     if (showClearAllDialog) {
         ConfirmDestructiveDialog(
-            title = "Clear All Data",
-            message = "History, stats, and the imported Bible translation will all be deleted. This cannot be undone.",
+            title   = "Clear All Data",
+            message = "All translations, history and stats will be deleted. This cannot be undone.",
             confirmLabel = "Clear All",
             onConfirm = { viewModel.clearAllData(); showClearAllDialog = false },
             onDismiss = { showClearAllDialog = false }
         )
     }
+}
+
+@Composable
+private fun TranslationCard(
+    profile: TranslationProfile,
+    isActive: Boolean,
+    hasFsb: Boolean,
+    importProgress: Pair<Int, Int>?,
+    importError: String?,
+    onActivate: () -> Unit,
+    onSetFolder: () -> Unit,
+    onImportFsb: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val hasFolder = profile.folderUri != null
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = if (isActive) 4.dp else 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            // Header row: radio + name + delete
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = isActive,
+                    onClick  = onActivate,
+                    colors   = RadioButtonDefaults.colors(selectedColor = BibleAmber)
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(profile.name, fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyLarge)
+                    if (isActive) {
+                        Text("Active", style = MaterialTheme.typography.labelSmall,
+                            color = BibleAmber, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Rounded.DeleteForever, "Delete",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp))
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+            // Audio folder row
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Folder, null, tint = BibleAmber, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Audio Folder", style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold)
+                    Text(if (hasFolder) "Configured" else "Not set",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (hasFolder) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = onSetFolder) {
+                    Text(if (hasFolder) "Change" else "Set Folder",
+                        color = BibleAmber, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            // FSB Bible text row
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.FileOpen, null, tint = BibleAmber, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Bible Text (.fsb)", style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold)
+                    Text(if (hasFsb) "Imported" else "Not imported",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (hasFsb) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = onImportFsb, enabled = importProgress == null) {
+                    Text(if (hasFsb) "Re-import" else "Import",
+                        color = BibleAmber, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            // Import progress / error
+            if (importProgress != null) {
+                Spacer(Modifier.height(8.dp))
+                val (done, total) = importProgress
+                LinearProgressIndicator(
+                    progress = { if (total > 0) done.toFloat() / total else 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = BibleAmber,
+                    trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(if (total == 0) "Starting…" else "Importing… $done / $total verses",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (importError != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(importError, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddTranslationDialog(
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon  = { Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = BibleAmber) },
+        title = { Text("Add Translation") },
+        text  = {
+            Column {
+                Text("Enter a name for this translation (e.g. KJV, NIV).",
+                    style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Translation name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled = name.isNotBlank()
+            ) { Text("Add", color = BibleAmber) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -334,13 +418,11 @@ private fun SettingsTile(
             Icon(icon, null, tint = iconTint, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.SemiBold,
-                    style = MaterialTheme.typography.bodyLarge)
+                Text(title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(Icons.Rounded.ChevronRight, null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -368,14 +450,12 @@ private fun ConfirmDestructiveDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Warning, null,
-            tint = MaterialTheme.colorScheme.error) },
+        icon = { Icon(Icons.Rounded.Warning, null, tint = MaterialTheme.colorScheme.error) },
         title = { Text(title) },
-        text = { Text(message) },
+        text  = { Text(message) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text(confirmLabel, color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.Bold)
+                Text(confirmLabel, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -383,3 +463,4 @@ private fun ConfirmDestructiveDialog(
         }
     )
 }
+

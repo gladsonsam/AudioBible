@@ -46,6 +46,7 @@ fun ChaptersScreen(
     val playCountMap   = remember(playCounts) { playCounts.associate { it.chapterNumber to it.count } }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             Column(
                 modifier = Modifier
@@ -115,33 +116,40 @@ fun ChaptersScreen(
                 }
             }
         },
-        bottomBar = {
-            MiniPlayer(viewModel = viewModel, onExpand = onOpenPlayer)
-        }
+        bottomBar = {}
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 72.dp),
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(padding)
         ) {
-            items(book.chapters) { chapter ->
-                val isActive  = currentChapter == chapter
-                val playCount = playCountMap[chapter.chapterNumber] ?: 0
-                ChapterCell(
-                    chapter    = chapter,
-                    isActive   = isActive,
-                    isPlaying  = isPlaying && isActive,
-                    playCount  = playCount,
-                    onClick    = {
-                        viewModel.playChapter(chapter)
-                        onChapterClick(chapter)
-                    }
-                )
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 72.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(book.chapters) { chapter ->
+                    val isActive  = currentChapter == chapter
+                    val playCount = playCountMap[chapter.chapterNumber] ?: 0
+                    ChapterCell(
+                        chapter    = chapter,
+                        isActive   = isActive,
+                        isPlaying  = isPlaying && isActive,
+                        playCount  = playCount,
+                        onClick    = {
+                            viewModel.playChapter(chapter)
+                            onChapterClick(chapter)
+                        }
+                    )
+                }
             }
+            MiniPlayer(
+                viewModel = viewModel,
+                onExpand = onOpenPlayer,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 }

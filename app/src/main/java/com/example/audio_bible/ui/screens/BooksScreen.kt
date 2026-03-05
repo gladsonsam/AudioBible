@@ -2,6 +2,7 @@ package com.example.audio_bible.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,12 +17,16 @@ import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -36,6 +41,9 @@ import com.example.audio_bible.data.BibleChapter
 import com.example.audio_bible.ui.theme.BibleAmber
 import com.example.audio_bible.ui.theme.BibleGold
 import com.example.audio_bible.ui.viewmodel.BibleViewModel
+
+/** In-memory cache for book background bitmaps to avoid re-decoding on scroll. */
+private val bookBitmapCache = mutableMapOf<String, android.graphics.Bitmap?>()
 
 /** Parse "gen 1", "john 3:16", "1 samuel 5" → matching BibleChapter or null */
 private fun parseChapterQuery(query: String, books: List<BibleBook>): BibleChapter? {
@@ -61,20 +69,22 @@ fun BooksScreen(
     onOpenStats: () -> Unit = {},
     onOpenSettings: () -> Unit = {}
 ) {
-    val books        by viewModel.books.collectAsState()
-    val isLoading    by viewModel.isLoading.collectAsState()
-    val error        by viewModel.error.collectAsState()
-    val progress     by viewModel.bookProgressMap.collectAsState(emptyMap())
-    val continueInfo by viewModel.continueListening.collectAsState()
-    val verseResults by viewModel.verseSearchResults.collectAsState()
-    var query        by remember { mutableStateOf("") }
-    var oldExpanded  by remember { mutableStateOf(true) }
-    var newExpanded  by remember { mutableStateOf(true) }
+    val books             by viewModel.books.collectAsState()
+    val isLoading         by viewModel.isLoading.collectAsState()
+    val error             by viewModel.error.collectAsState()
+    val progress          by viewModel.bookProgressMap.collectAsState(emptyMap())
+    val continueInfo      by viewModel.continueListening.collectAsState()
+    val verseResults      by viewModel.verseSearchResults.collectAsState()
+    val activeTranslation by viewModel.activeTranslation.collectAsState()
+    var query             by remember { mutableStateOf("") }
+    var oldExpanded       by remember { mutableStateOf(true) }
+    var newExpanded       by remember { mutableStateOf(true) }
 
     // Keep ViewModel search query in sync
     LaunchedEffect(query) { viewModel.verseSearchQuery.value = query }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             Column(
                 modifier = Modifier
@@ -97,11 +107,11 @@ fun BooksScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
-                            if (books.isNotEmpty()) {
+                            if (!activeTranslation.isNullOrBlank()) {
                                 Text(
-                                    "${books.size} books · ${books.sumOf { it.chapters.size }} chapters",
+                                    activeTranslation!!,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = BibleAmber
                                 )
                             }
                         }
@@ -149,9 +159,7 @@ fun BooksScreen(
                 }
             }
         },
-        bottomBar = {
-            MiniPlayer(viewModel = viewModel, onExpand = onOpenPlayer)
-        }
+        bottomBar = {}
     ) { padding ->
         Box(
             modifier = Modifier
@@ -245,11 +253,19 @@ fun BooksScreen(
                                 )
                             }
                         }
-                        // Bottom padding item so last row isn't cut off
-                        item(span = { GridItemSpan(2) }) { Spacer(Modifier.height(8.dp)) }
+                        // Bottom padding — ensures last row can scroll above the MiniPlayer
+                        item(span = { GridItemSpan(2) }) {
+                            Spacer(Modifier.height(110.dp))
+                        }
                     }
                 }
             }
+            // MiniPlayer overlaid at the bottom — no Scaffold surface behind it
+            MiniPlayer(
+                viewModel = viewModel,
+                onExpand = onOpenPlayer,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 }
@@ -464,6 +480,25 @@ private fun SectionHeader(title: String, count: Int, expanded: Boolean, onToggle
 private fun BookCard(book: BibleBook, chaptersRead: Int, onClick: (BibleBook) -> Unit) {
     val total = book.chapters.size
     val fraction = if (total > 0) chaptersRead.toFloat() / total else 0f
+    val context = LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(
+        initialValue = bookBitmapCache[book.name],
+        book.name
+    ) {
+        if (bookBitmapCache.containsKey(book.name)) {
+            value = bookBitmapCache[book.name]
+            return@produceState
+        }
+        val decoded = try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 }
+                context.assets.open("bible_book_backgrounds/${book.name}.jpg")
+                    .use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+            }
+        } catch (_: Exception) { null }
+        bookBitmapCache[book.name] = decoded
+        value = decoded
+    }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -472,51 +507,58 @@ private fun BookCard(book: BibleBook, chaptersRead: Int, onClick: (BibleBook) ->
             .fillMaxWidth()
             .clickable { onClick(book) }
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Number badge
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Brush.linearGradient(listOf(BibleAmber, BibleGold))),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = book.number.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Black
+        Box(modifier = Modifier.height(130.dp)) {
+            // Background image
+            val bmp = bitmap
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize()
                 )
             }
-            Text(
-                text = book.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 18.sp
-            )
-            Spacer(Modifier.height(4.dp))
-            // Progress bar
-            LinearProgressIndicator(
-                progress = { fraction },
+            // Dark gradient overlay for text legibility
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = BibleAmber,
-                trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.15f), Color.Black.copy(alpha = 0.75f))
+                        )
+                    )
             )
-            Text(
-                text = "$chaptersRead/$total read",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (chaptersRead > 0) BibleAmber
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Content
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = book.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 18.sp
+                )
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = BibleAmber,
+                    trackColor = Color.White.copy(alpha = 0.25f)
+                )
+                Text(
+                    text = "$chaptersRead/$total read",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (chaptersRead > 0) BibleAmber else Color.White.copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }

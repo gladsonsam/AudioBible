@@ -40,8 +40,18 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(onBack: () -> Unit) {
+fun StatsScreen(
+    onBack: () -> Unit,
+    bibleViewModel: com.example.audio_bible.ui.viewmodel.BibleViewModel? = null
+) {
     val vm: StatsViewModel = viewModel()
+    val activeTranslation by (bibleViewModel?.activeTranslation
+        ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsState()
+
+    // Keep StatsViewModel in sync whenever the active translation changes
+    LaunchedEffect(activeTranslation) {
+        vm.setTranslationFilter(activeTranslation ?: "")
+    }
 
     val totalPlays       by vm.totalPlays.collectAsState(0)
     val uniqueChapters   by vm.uniqueChapters.collectAsState(0)

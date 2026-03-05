@@ -70,6 +70,10 @@ fun AudioBibleApp(activity: MainActivity) {
     // Keeps the selected book across composable recompositions within the session
     var selectedBook by remember { mutableStateOf<BibleBook?>(null) }
 
+    // Tracks which translation's audio folder the user is configuring
+    var pendingFolderForTranslation by remember { mutableStateOf<String?>(null) }
+    var pendingFsbForTranslation    by remember { mutableStateOf<String?>(null) }
+
     // Navigate to player whenever the activity receives a deep-link intent
     val pendingDest by activity.pendingNavDestination
     LaunchedEffect(pendingDest) {
@@ -95,7 +99,13 @@ fun AudioBibleApp(activity: MainActivity) {
             context.contentResolver.takePersistableUriPermission(
                 it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
-            viewModel.onFolderSelected(it)
+            val target = pendingFolderForTranslation
+            if (target != null) {
+                viewModel.setFolderForTranslation(target, it)
+                pendingFolderForTranslation = null
+            } else {
+                viewModel.onFolderSelected(it)
+            }
         }
     }
 
@@ -103,7 +113,11 @@ fun AudioBibleApp(activity: MainActivity) {
     val fsbLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { viewModel.importFsb(it) }
+        uri?.let {
+            val target = pendingFsbForTranslation
+            viewModel.importFsb(it, target)
+            pendingFsbForTranslation = null
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -175,15 +189,24 @@ fun AudioBibleApp(activity: MainActivity) {
 
         // Stats slides in from the right (same direction as forward nav)
         composable("stats") {
-            StatsScreen(onBack = { navController.popBackStack() })
+            StatsScreen(
+                onBack        = { navController.popBackStack() },
+                bibleViewModel = viewModel
+            )
         }
 
         composable("settings") {
             SettingsScreen(
-                viewModel         = viewModel,
-                onBack            = { navController.popBackStack() },
-                onChangeAudioFolder = { folderLauncher.launch(null) },
-                onImportFsb       = { fsbLauncher.launch(arrayOf("*/*")) }
+                viewModel           = viewModel,
+                onBack              = { navController.popBackStack() },
+                onSetAudioFolder    = { translationName ->
+                    pendingFolderForTranslation = translationName
+                    folderLauncher.launch(null)
+                },
+                onImportFsb         = { translationName ->
+                    pendingFsbForTranslation = translationName
+                    fsbLauncher.launch(arrayOf("*/*"))
+                }
             )
         }
     }

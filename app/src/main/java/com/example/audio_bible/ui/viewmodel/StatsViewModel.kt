@@ -15,50 +15,63 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dao = BibleDatabase.getInstance(app).statsDao()
 
-    val totalPlays       = dao.totalPlays()
-    val uniqueChapters   = dao.uniqueChapters()
-    val totalMinutes     = dao.totalMinutesListened()
-    val top5Books        = dao.top5Books()
-    val allBookStats     = dao.allBookStats()
-    val recentHistory    = dao.recentHistory()
+    private val _translation = MutableStateFlow(
+        app.getSharedPreferences("bible_prefs", android.content.Context.MODE_PRIVATE)
+            .getString("active_translation", "") ?: ""
+    )
 
-    // Heatmap: all data from the very first recorded day
+    fun setTranslationFilter(name: String) { _translation.value = name }
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    val heatmap = dao.earliestTimestamp().flatMapLatest { earliest ->
-        dao.heatmap(since = earliest ?: System.currentTimeMillis())
+    val totalPlays     = _translation.flatMapLatest { dao.totalPlays(it) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val uniqueChapters = _translation.flatMapLatest { dao.uniqueChapters(it) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val totalMinutes   = _translation.flatMapLatest { dao.totalMinutesListened(it) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val top5Books      = _translation.flatMapLatest { dao.top5Books(it) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val allBookStats   = _translation.flatMapLatest { dao.allBookStats(it) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val recentHistory  = _translation.flatMapLatest { dao.recentHistory(it) }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val heatmap = _translation.flatMapLatest { trans ->
+        dao.earliestTimestamp(trans).flatMapLatest { earliest ->
+            dao.heatmap(since = earliest ?: System.currentTimeMillis(), translation = trans)
+        }
     }
 
-    // Selected day (YYYY-MM-DD) for the detail sheet; null = nothing selected
     val selectedDay = MutableStateFlow<String?>(null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val selectedDayLogs = selectedDay.flatMapLatest { day ->
-        if (day == null) flowOf(emptyList()) else dao.logsForDay(day)
+        if (day == null) flowOf(emptyList())
+        else dao.logsForDay(day, _translation.value)
     }
 
-    // Full year of activity for streak calculation
-    private val yearActivity = dao.heatmap(
-        since = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(365)
-    )
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val yearActivity = _translation.flatMapLatest { trans ->
+        dao.heatmap(
+            since = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(365),
+            translation = trans
+        )
+    }
 
-    /** Consecutive days ending today (or yesterday) with at least one play. */
     val currentStreak = yearActivity.map { days -> calcCurrentStreak(days.map { it.dayLabel }.toSet()) }
-
-    /** Longest ever consecutive-day run. */
     val longestStreak = yearActivity.map { days -> calcLongestStreak(days.map { it.dayLabel }.toSet()) }
 
-    /** Fraction of the Protestant Bible's 1189 chapters heard at least once. */
-    val completionFraction = dao.uniqueChapters().map { it.toFloat() / 1189f }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val completionFraction = _translation.flatMapLatest { dao.uniqueChapters(it) }
+        .map { it.toFloat() / 1189f }
 
     private fun calcCurrentStreak(daySet: Set<String>): Int {
         if (daySet.isEmpty()) return 0
         var streak = 0
         val cal = Calendar.getInstance()
-        // Allow streak to count if last listened was yesterday
         while (true) {
             val key = calKey(cal)
             if (key !in daySet) {
-                // If today is missing, check yesterday before giving up
                 if (streak == 0) { cal.add(Calendar.DAY_OF_YEAR, -1); continue }
                 break
             }
@@ -95,7 +108,6 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
 
 /** Minimal date helper to avoid java.time API level issues. */
 private object LocalDateHelper {
-    /** Returns epoch days (days since 1970-01-01) for a "YYYY-MM-DD" string. */
     fun parse(s: String): Long {
         val y = s.substring(0, 4).toInt()
         val m = s.substring(5, 7).toInt()
@@ -107,4 +119,5 @@ private object LocalDateHelper {
         return cal.timeInMillis / 86_400_000L
     }
 }
+
 

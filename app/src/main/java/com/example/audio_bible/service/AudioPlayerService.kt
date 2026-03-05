@@ -295,9 +295,11 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
     private fun logCompletion() {
         val chapter = PlayerState.currentChapter.value ?: return
         val duration = PlayerState.durationMs.value
+        val translationName = prefs.getString("active_translation", "") ?: ""
         serviceScope.launch {
             BibleDatabase.getInstance(applicationContext).statsDao().insert(
                 ReadingLog(
+                    translationName   = translationName,
                     bookNumber        = chapter.bookNumber,
                     bookName          = chapter.bookName,
                     chapterNumber     = chapter.chapterNumber,

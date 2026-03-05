@@ -25,7 +25,8 @@ import com.example.audio_bible.ui.viewmodel.BibleViewModel
 @Composable
 fun MiniPlayer(
     viewModel: BibleViewModel,
-    onExpand: () -> Unit
+    onExpand: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val currentChapter by viewModel.currentChapter.collectAsState()
     val isPlaying      by viewModel.isPlaying.collectAsState()
@@ -35,6 +36,7 @@ fun MiniPlayer(
 
     AnimatedVisibility(
         visible = currentChapter != null,
+        modifier = modifier,
         enter = slideInVertically(tween(300)) { it } + fadeIn(tween(300)),
         exit  = slideOutVertically(tween(200)) { it } + fadeOut(tween(200))
     ) {
@@ -47,31 +49,16 @@ fun MiniPlayer(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
+                            MaterialTheme.colorScheme.primaryContainer,
+                            MaterialTheme.colorScheme.surface
                         )
                     )
                 )
                 .clickable(onClick = onExpand)
+                .navigationBarsPadding()
         ) {
-            // Drag handle
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 6.dp)
-                    .size(32.dp, 4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-            )
 
-            // Progress bar
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 6.dp),
-                color = BibleAmber,
-                trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-            )
-
+            // Progress bar removed — was the horizontal line between handle and controls
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
