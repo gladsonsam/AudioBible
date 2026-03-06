@@ -6,7 +6,7 @@ An extremely overengineered Android audio Bible player with synchronized text, m
 
 - **Audio playback** — play Bible audio by book and chapter using MP3 files stored on your device
 - **Verse sync** — text highlights in sync with audio via JSON sync files
-- **Multiple translations** — import `.fsb` Bible text files and switch between translations
+- **Multiple translations** — import [`.fsb`](https://github.com/ChurchApps/json-bible#readme) Bible text files and switch between translations
 - **Reading stats** — track your progress with session logs and chapter history
 - **Home screen widget** — quick play/pause from your launcher
 - **Android Auto** — in-car playback support with book art
