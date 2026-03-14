@@ -208,6 +208,34 @@ fun SettingsScreen(
                 )
             }
 
+            // ── Credits ───────────────────────────────────────────────────────────
+            item { Spacer(Modifier.height(24.dp)) }
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Made by Gladson Sam",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "\"So then faith comes by hearing, and hearing by the word of God.\"",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        "— Romans 10:17",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
             item { Spacer(Modifier.height(32.dp)) }
         }
     }
