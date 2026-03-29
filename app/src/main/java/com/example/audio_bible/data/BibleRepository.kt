@@ -56,9 +56,10 @@ class BibleRepository(private val context: Context) {
                     val fileUri = DocumentsContract.buildDocumentUriUsingTree(
                         folderUri, cursor.getString(idCol)
                     )
+                    val bookNumber = bookNum.toInt()
                     chapters += BibleChapter(
-                        bookNumber    = bookNum.toInt(),
-                        bookName      = formatBookName(bookName),
+                        bookNumber    = bookNumber,
+                        bookName      = formatBookName(bookNumber, bookName),
                         chapterNumber = chapterNum.toInt(),
                         uri           = fileUri
                     )
@@ -149,7 +150,9 @@ class BibleRepository(private val context: Context) {
         }
 }
 
-/** "1Samuel" → "1 Samuel", "2Kings" → "2 Kings", plain names unchanged. */
-private fun formatBookName(raw: String): String =
-    raw.replace(Regex("""^(\d+)([A-Za-z])"""), "$1 $2")
-
+/** "1Samuel" → "1 Samuel", with canonical overrides by book number when needed. */
+private fun formatBookName(bookNumber: Int, raw: String): String {
+    if (bookNumber == 22) return "Song of Solomon"
+    val withLeadingNumber = raw.replace(Regex("""^(\d+)([A-Za-z])"""), "$1 $2")
+    return withLeadingNumber.replace(Regex("""([a-z])([A-Z])"""), "$1 $2")
+}

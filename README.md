@@ -2,6 +2,16 @@
 
 An extremely overengineered Android audio Bible player with synchronized text, multi-translation support, and playback controls.
 
+## Screenshots
+
+<div align="center">
+  <img src="docs/1.jpg" width="45%" alt="Screenshot 1" />
+  <img src="docs/2.jpg" width="45%" alt="Screenshot 2" />
+  <br />
+  <img src="docs/3.jpg" width="45%" alt="Screenshot 3" />
+  <img src="docs/4.jpg" width="45%" alt="Screenshot 4" />
+</div>
+
 ## Features
 
 - **Audio playback** — play Bible audio by book and chapter using MP3 files stored on your device

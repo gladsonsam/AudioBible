@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio_bible.data.BibleBook
 import com.example.audio_bible.data.BibleChapter
+import com.example.audio_bible.data.HistoryManager
 import com.example.audio_bible.data.VerseSync
 import com.example.audio_bible.data.BibleRepository
 import com.example.audio_bible.data.FsbParser
@@ -411,6 +412,31 @@ class BibleViewModel(app: Application) : AndroidViewModel(app) {
                 remove("folder_uri")
             }.apply()
             _continueListening.value = null
+        }
+    }
+
+    fun exportHistoryToUri(uri: Uri, onComplete: (String) -> Unit) {
+        viewModelScope.launch {
+            val result = HistoryManager(getApplication(), db).exportToUri(uri)
+            result.onSuccess {
+                onComplete("Exported to: $it")
+            }.onFailure { error ->
+                onComplete("Error: ${error.message ?: "Export failed"}")
+            }
+        }
+    }
+
+    fun importHistoryFromUri(uri: Uri, onComplete: (String) -> Unit) {
+        viewModelScope.launch {
+            val result = HistoryManager(getApplication(), db).importFromUri(uri)
+            result.onSuccess {
+                // Refresh in-memory state after import
+                _activeTranslation.value = prefs.getString("active_translation", null)
+                _continueListening.value = readContinueListening()
+                onComplete("Import complete")
+            }.onFailure { error ->
+                onComplete("Error: ${error.message ?: "Import failed"}")
+            }
         }
     }
 

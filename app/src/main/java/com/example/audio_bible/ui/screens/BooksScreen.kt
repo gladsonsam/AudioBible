@@ -45,6 +45,18 @@ import com.example.audio_bible.ui.viewmodel.BibleViewModel
 /** In-memory cache for book background bitmaps to avoid re-decoding on scroll. */
 private val bookBitmapCache = mutableMapOf<String, android.graphics.Bitmap?>()
 
+private fun backgroundCandidateNames(bookName: String): List<String> {
+    val collapsed = bookName.replace(" ", "")
+    val titleCaseOf = bookName.replace(" of ", " Of ")
+    val lowerCaseOf = bookName.replace(" Of ", " of ")
+    return listOf(
+        bookName,
+        lowerCaseOf,
+        titleCaseOf,
+        collapsed
+    ).distinct()
+}
+
 /** Parse "gen 1", "john 3:16", "1 samuel 5" → matching BibleChapter or null */
 private fun parseChapterQuery(query: String, books: List<BibleBook>): BibleChapter? {
     val trimmed = query.trim()
@@ -489,13 +501,21 @@ private fun BookCard(book: BibleBook, chaptersRead: Int, onClick: (BibleBook) ->
             value = bookBitmapCache[book.name]
             return@produceState
         }
-        val decoded = try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 }
-                context.assets.open("bible_book_backgrounds/${book.name}.jpg")
-                    .use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+        val decoded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 }
+            val candidates = backgroundCandidateNames(book.name)
+            var bmp: android.graphics.Bitmap? = null
+            for (candidate in candidates) {
+                bmp = try {
+                    context.assets.open("bible_book_backgrounds/$candidate.jpg")
+                        .use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+                } catch (_: Exception) {
+                    null
+                }
+                if (bmp != null) break
             }
-        } catch (_: Exception) { null }
+            bmp
+        }
         bookBitmapCache[book.name] = decoded
         value = decoded
     }

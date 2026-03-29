@@ -1,5 +1,7 @@
 package com.example.audio_bible.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +20,9 @@ import androidx.compose.ui.unit.sp
 import com.example.audio_bible.data.db.TranslationProfile
 import com.example.audio_bible.ui.theme.BibleAmber
 import com.example.audio_bible.ui.viewmodel.BibleViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +44,31 @@ fun SettingsScreen(
     var showClearAllDialog       by remember { mutableStateOf(false) }
     var showAddTranslationDialog by remember { mutableStateOf(false) }
     var deleteTarget             by remember { mutableStateOf<String?>(null) }
+    var statusMessage            by remember { mutableStateOf<String?>(null) }
+    var statusTitle              by remember { mutableStateOf("Done") }
+    var showStatusDialog         by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        viewModel.exportHistoryToUri(uri) { message ->
+            statusTitle = if (message.startsWith("Error:")) "Export Failed" else "Export Successful"
+            statusMessage = message
+            showStatusDialog = true
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        viewModel.importHistoryFromUri(uri) { message ->
+            statusTitle = if (message.startsWith("Error:")) "Import Failed" else "Import Successful"
+            statusMessage = message
+            showStatusDialog = true
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -200,6 +230,25 @@ fun SettingsScreen(
             }
             item {
                 SettingsTile(
+                    icon = Icons.Rounded.Download,
+                    title = "Export History",
+                    subtitle = "Save reading history and preferences as JSON",
+                    onClick = {
+                        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                        exportLauncher.launch("audiobible-history-$stamp.json")
+                    }
+                )
+            }
+            item {
+                SettingsTile(
+                    icon = Icons.Rounded.Upload,
+                    title = "Import History",
+                    subtitle = "Restore from a previously exported file",
+                    onClick = { importLauncher.launch(arrayOf("application/json", "text/json", "*/*")) }
+                )
+            }
+            item {
+                SettingsTile(
                     icon = Icons.Rounded.DeleteForever,
                     title = "Clear All Data",
                     subtitle = "Remove all translations, history and stats",
@@ -279,6 +328,19 @@ fun SettingsScreen(
             confirmLabel = "Clear All",
             onConfirm = { viewModel.clearAllData(); showClearAllDialog = false },
             onDismiss = { showClearAllDialog = false }
+        )
+    }
+
+    if (showStatusDialog && statusMessage != null) {
+        AlertDialog(
+            onDismissRequest = { showStatusDialog = false },
+            title = { Text(statusTitle) },
+            text = { Text(statusMessage!!) },
+            confirmButton = {
+                Button(onClick = { showStatusDialog = false }) {
+                    Text("OK")
+                }
+            }
         )
     }
 }
@@ -491,4 +553,3 @@ private fun ConfirmDestructiveDialog(
         }
     )
 }
-

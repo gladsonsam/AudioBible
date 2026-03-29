@@ -354,6 +354,22 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
 
     private fun playNext() {
         val playlist = PlayerState.playlist.value
+        
+        // If playlist is empty (e.g., launched from Galaxy Routines without UI context),
+        // load it first before finding the next chapter
+        if (playlist.isEmpty()) {
+            serviceScope.launch {
+                getOrLoadPlaylist()
+                handler.post { playNextInternal() }
+            }
+            return
+        }
+        
+        playNextInternal()
+    }
+    
+    private fun playNextInternal() {
+        val playlist = PlayerState.playlist.value
         val idx = playlist.indexOf(PlayerState.currentChapter.value)
         if (idx in 0 until playlist.size - 1) {
             playChapter(idx + 1)
@@ -364,6 +380,22 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
     }
 
     private fun playPrev() {
+        val playlist = PlayerState.playlist.value
+        
+        // If playlist is empty (e.g., launched from Galaxy Routines without UI context),
+        // load it first before finding the previous chapter
+        if (playlist.isEmpty()) {
+            serviceScope.launch {
+                getOrLoadPlaylist()
+                handler.post { playPrevInternal() }
+            }
+            return
+        }
+        
+        playPrevInternal()
+    }
+    
+    private fun playPrevInternal() {
         val playlist = PlayerState.playlist.value
         val idx = playlist.indexOf(PlayerState.currentChapter.value)
         if ((mediaPlayer?.currentPosition ?: 0) > 3000) {
@@ -727,6 +759,11 @@ class AudioPlayerService : MediaBrowserServiceCompat() {
 
         // Must be a foreground service before playing audio
         startForeground(NOTIFICATION_ID, buildNotification())
+
+        // Load playlist so that playNext() can find subsequent chapters when this one completes
+        serviceScope.launch {
+            getOrLoadPlaylist()
+        }
 
         try {
             mediaPlayer?.release()
